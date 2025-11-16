@@ -9,7 +9,8 @@ import_code("chainsaw/chainsaw.src")
 
 Modules = {}
 
-Modules.FindALib = function(library_name, shell = null) // Find a library somewhere on the system
+// Find a library somewhere on the system
+Modules.FindALib = function(library_name, shell = null)
 
 	if not library_name then
 		print("Error: No library name provided.")
@@ -46,6 +47,7 @@ Modules.FindALib = function(library_name, shell = null) // Find a library somewh
 
 end function
 
+// Find write permissions somewhere on the filesystem
 Modules.FindWritePerms = function(folder)
 
 	writeable_folder = null
@@ -75,6 +77,7 @@ Modules.FindWritePerms = function(folder)
 
 end function
 
+// Check if there's a log file here
 log_is_in_folder = function(log_file_name, log_folder)
 
 	for file in log_folder.get_files
@@ -86,7 +89,8 @@ log_is_in_folder = function(log_file_name, log_folder)
 	return false
 end function
 
-check_log_exists = function(log_file_name, log_path, shell) // Check if the log file already exists in any folder
+// Check if the given log file already exists in any folder
+check_log_exists = function(log_file_name, log_path, shell)
 
 	log_folder = shell.host_computer.File(log_path)
 	if not log_folder then
@@ -114,7 +118,9 @@ check_log_exists = function(log_file_name, log_path, shell) // Check if the log 
 	return false
 end function
 
-check_logs_folder = function(logs_folder) // Check if the logs folder is full and create a new one if necessary
+// Check if the logs folder is full and create a new one if necessary
+// Used by the woodchuck program -- not released
+check_logs_folder = function(logs_folder)
 	max_files = 240
 	log_folder_contents = logs_folder.get_files
 	if len(log_folder_contents) > max_files then
@@ -148,7 +154,7 @@ check_logs_folder = function(logs_folder) // Check if the logs folder is full an
 
 end function
 
-
+// Grab logs from a remote shell and bring them home
 Modules.FetchLog = function(remote_shell, home_shell, log_path)
 
 	log_file_name = remote_shell.host_computer.public_ip + "_system.log"
@@ -196,7 +202,9 @@ Modules.FetchLog = function(remote_shell, home_shell, log_path)
 
 end function
 
-Modules.WipeLog = function(shell) // wipe and corrupt the log file
+// wipe and corrupt the log file
+// used by Arborist - see the tree?
+Modules.WipeLog = function(shell)
 
 	if not shell then
 		print("Error: No shell provided.")

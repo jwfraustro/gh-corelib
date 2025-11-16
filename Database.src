@@ -1,0 +1,283 @@
+/*
+Functions for creating, loading, saving, and checking vulnerabilities in a database file.
+
+{
+library_name: {
+library_version: {
+addresses: [
+address1,
+address2,
+...
+]
+}
+}
+}
+ */
+
+VulnerabilityDB = {}
+
+/*
+Create a new database file.
+ */
+VulnerabilityDB.create = function(path, name)
+	host_computer = get_shell.host_computer
+	db_file = host_computer.touch(path, name)
+	if typeof(db_file) == "string" then
+		print("Error creating database file: " + db_file)
+		return
+	end if
+	return
+end function
+
+/*
+Add a vulnerability to the database file. If the library is provided, the library name and version will be used.
+ */
+VulnerabilityDB.add = function(path, library = null, addresses = [], lib_name = "", lib_version = "")
+
+	if not path then
+		print("No path provided")
+		return
+	end if
+
+	if not addresses then
+		print("No addresses provided")
+		return
+	end if
+
+	if not library and (not lib_name and not lib_version) then
+		print("No library provided")
+		return
+	end if
+
+	if library then
+		lib_name = library.lib_name
+		lib_version = library.version
+	end if
+
+	db_file = get_shell.host_computer.File(path)
+
+	if not db_file then
+		print("Database file not found.")
+		return
+	end if
+
+	db_contents = db_file.get_content
+	vulns = VulnerabilityDB.parse(db_contents)
+
+	if vulns.hasIndex(lib_name) then
+		vulns[lib_name][lib_version] = {}
+		vulns[lib_name][lib_version]["addresses"] = addresses
+	else
+		vulns[lib_name] = {}
+		vulns[lib_name][lib_version] = {}
+		vulns[lib_name][lib_version]["addresses"] = addresses
+	end if
+
+	serial_vulns = VulnerabilityDB.serialize(vulns)
+
+	db_file.set_content(serial_vulns)
+
+	return
+
+end function
+
+/*
+Load the vulnerabilities from the database file.
+ */
+VulnerabilityDB.load = function(db_path)
+
+	db_file = get_shell.host_computer.File(db_path)
+
+	if not db_file then
+		print("Database file not found.")
+		return {}
+	end if
+
+	db_contents = db_file.get_content
+	vulns = VulnerabilityDB.parse(db_contents)
+
+	if not vulns then
+		print("No vulnerabilities found in database")
+		return {}
+	end if
+
+	return vulns
+
+end function
+
+/*
+Save the vulnerabilities to the database file. This will overwrite the existing content.
+ */
+VulnerabilityDB.save = function(db_path, vulns)
+
+	db_file = get_shell.host_computer.File(db_path)
+
+	if not db_file then
+		print("Database file not found.")
+		return
+	end if
+
+	vulns = VulnerabilityDB.serialize(vulns)
+
+	db_file.set_content(vulns)
+
+	return
+
+end function
+
+/*
+Check if a library has vulnerabilities in the database.
+ */
+VulnerabilityDB.check = function(library_name, library_version, db_path)
+
+	db_file = get_shell.host_computer.File(db_path)
+
+	if not db_file then
+		print("Database file not found.")
+		return []
+	end if
+
+	db_contents = db_file.get_content
+	if not db_contents then
+		print("No content found in database file")
+		return []
+	end if
+
+	vulns = VulnerabilityDB.parse(db_contents)
+
+	if vulns.hasIndex(library_name) then
+		if vulns[library_name].hasIndex(library_version) then
+			return vulns[library_name][library_version]["addresses"]
+		end if
+	end if
+
+	return []
+
+end function
+
+/*
+Parse the database file content.
+ */
+VulnerabilityDB.parse = function(file_content)
+
+	if not file_content then
+		print("No file content provided")
+		return {}
+	end if
+
+	lines = file_content.split("\n")
+
+	vulnerabilities = {}
+
+	for line in lines
+		if line == "" then continue
+
+		vuln_data = line.split(char(9))
+		lib_name = vuln_data[0]
+		lib_version = vuln_data[1]
+		addresses = vuln_data[2 : ]
+
+        if not vulnerabilities.hasIndex(lib_name) then
+            vulnerabilities[lib_name] = {}
+        end if
+		vulnerabilities[lib_name][lib_version] = {}
+		vulnerabilities[lib_name][lib_version]["addresses"] = addresses
+
+	end for
+
+	return vulnerabilities
+end function
+
+VulnerabilityDB.serialize = function(vulns)
+
+	if not vulns then
+		print("No vulnerabilities provided")
+		return ""
+	end if
+
+	out_str = ""
+
+	for library_name in vulns.indexes
+		for lib_version in vulns[library_name].indexes
+			out_str = out_str + library_name + char(9) + lib_version + char(9) + vulns[library_name][lib_version]["addresses"].join(char(9)) + char(10)
+		end for
+	end for
+
+	return out_str
+
+end function
+
+unitTestSerialize = function()
+
+    assertEqual = function(a, b)
+        if a != b then
+            print("Test failed: " + a + " != " + b)
+        end if
+    end function
+
+    vulns = {
+        "lib1": {
+            "1.0": {
+                "addresses": [
+                    "1234",
+                    "5678"
+                ]
+            },
+            "1.1": {
+                "addresses": [
+                    "abcd",
+                    "efgh"
+                ]
+            }
+        },
+        "lib2": {
+            "2.0": {
+                "addresses": [
+                    "ijkl",
+                    "mnop"
+                ]
+            }
+        }
+    }
+
+    serial_string = VulnerabilityDB.serialize(vulns)
+
+    line_1_test = "lib1" + char(9) + "1.0" + char(9) + "1234" + char(9) + "5678"
+    line_2_test = "lib1" + char(9) + "1.1" + char(9) + "abcd" + char(9) + "efgh"
+    line_3_test = "lib2" + char(9) + "2.0" + char(9) + "ijkl" + char(9) + "mnop"
+
+    out_strs = serial_string.split(char(10))
+
+    assertEqual(out_strs[0], line_1_test)
+    assertEqual(out_strs[1], line_2_test)
+    assertEqual(out_strs[2], line_3_test)
+
+end function
+
+unitTestParse = function()
+
+    test_str = ""
+    test_str = test_str + "lib1" + char(9) + "1.0" + char(9) + "1234" + char(9) + "5678" + char(10)
+    test_str = test_str + "lib1" + char(9) + "1.1" + char(9) + "abcd" + char(9) + "efgh" + char(10)
+    test_str = test_str + "lib2" + char(9) + "2.0" + char(9) + "ijkl" + char(9) + "mnop" + char(10)
+
+    vulns = VulnerabilityDB.parse(test_str)
+
+    assertEqual = function(a, b)
+        if a != b then
+            print("Test failed: " + a + " != " + b)
+        end if
+    end function
+
+    assertEqual(vulns.indexes.len, 2)
+    assertEqual(vulns["lib1"].indexes.len, 2)
+    assertEqual(vulns["lib2"].indexes.len, 1)
+    assertEqual(vulns["lib1"]["1.0"]["addresses"].len, 2)
+    assertEqual(vulns["lib1"]["1.1"]["addresses"].len, 2)
+    assertEqual(vulns["lib2"]["2.0"]["addresses"].len, 2)
+
+end function
+
+unitTestSerialize()
+unitTestParse()
+

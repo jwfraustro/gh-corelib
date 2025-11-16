@@ -1,0 +1,162 @@
+/*
+Functions for scanning a computer for vulnerabilities.
+*/
+
+Scanning = {}
+
+/*
+    Scans an IP address and returns a list of ports.
+*/
+Scanning.ScanPorts = function(ip_address)
+
+    if not ip_address then
+        print("No IP address provided")
+        return
+    end if
+
+    print("Scanning ports at: " + ip_address)
+
+    is_lan = is_lan_ip(ip_address)
+    router = get_router(ip_address)
+
+    if is_lan then router = get_router
+	if not router then return null
+
+    if is_lan then
+		ports = router.device_ports(ip_address)
+	else
+		ports = router.used_ports
+	end if
+
+    print(ports)
+
+    out_str = "PORT CLOSED LAN_IP\n"
+
+    for port in ports
+		out_str = out_str + port.port_number + " " + port.is_closed + " " + port.get_lan_ip + "\n"
+	end for
+
+	print(format_columns(out_str.trim))
+
+	ports.push({
+		"port_number": 0,
+		"is_closed": 0,
+	})
+
+	return ports
+end function
+
+/*
+    Scans a port for libraries in use.
+*/
+Scanning.GetLibrary = function(metax, ip_address, port)
+
+    if not ip_address then
+        print("No IP address provided")
+        return
+    end if
+
+    if not port then
+        print("No port provided")
+        return
+    end if
+
+    print("Scanning for libraries at: " + ip_address)
+
+    router = get_router(ip_address)
+
+    if not router then
+        print("No router found")
+        return
+    end if
+
+    out_str = "PORT LIBRARY VERSION\n"
+
+    if port.is_closed then
+        print("Port is closed")
+        return
+    end if
+    print(metax)
+    net_session = metax.net_use(ip_address, port.port_number)
+
+    if not net_session then
+        print("No network session found")
+        return
+    end if
+
+    meta_lib = net_session.dump_lib
+    if not meta_lib then
+        print("No libraries found")
+        return
+    end if
+    out_str = out_str + port.port_number + " " + meta_lib.lib_name + " " + meta_lib.version + "\n"
+
+    if not meta_lib then
+        print("No libraries were able to be found")
+        return
+    end if
+
+    print(format_columns(out_str))
+
+    return meta_lib
+end function
+
+/*
+    Scans a library for vulnerable addresses.
+*/
+Scanning.ScanLibrary = function(metax, library)
+
+    if not library then
+        print("No library provided")
+        return
+    end if
+
+    print("Scanning library: " + library.lib_name + " " + library.version)
+
+    unsafe_vals = []
+    addresses = metax.scan(library)
+
+    if addresses == [] then
+        print("No addresses found")
+        return []
+    end if
+
+    out_str = "LIBRARY VERSION ADDRESS\n"
+    for address in addresses
+        out_str = out_str + library.lib_name + " " + library.version + " " + address + "\n"
+    end for
+
+    print(format_columns(out_str))
+
+    return addresses
+end function
+
+/*
+    Scans a Metalibrary address for vulnerabilities.
+*/
+Scanning.ScanAddress = function(metax, metalib, address)
+
+    if not metalib then
+        print("No Metalibrary provided")
+        return
+    end if
+
+    if not address then
+        print("No address provided")
+        return
+    end if
+
+    print("Scanning address: " + address)
+
+    unsafe_values = []
+
+    sections = metax.scan_address(metalib, address).split("Unsafe check:")
+
+    for entry in sections[1:]
+        unsafe_val = entry[entry.indexOf("<b>") + 3 : entry.indexOf("</b>")]
+		unsafe_values.push(unsafe_val)
+	end for
+
+    return unsafe_values
+
+end function

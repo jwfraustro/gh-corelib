@@ -1,0 +1,495 @@
+// Modules - Prebuilt attack modules
+get_custom_object.in_script = true
+
+import_code("TypeUtils.src")
+import_code("Scanning.src")
+import_code("Vulnerability.src")
+import_code("Database.src")
+import_code("chainsaw/chainsaw.src")
+
+Modules = {}
+
+Modules.FindALib = function(library_name, shell = null) // Find a library somewhere on the system
+
+	if not library_name then
+		print("Error: No library name provided.")
+		return false
+	end if
+
+	if not shell then
+		shell = get_shell
+	end if
+
+	root_dir = shell.host_computer.File("/")
+
+	walk_like_an_egyption = function(folder)
+
+		for file in folder.get_files
+			if file.name == library_name then
+				return file
+			end if
+		end for
+
+		for subfolder in folder.get_folders
+			found_file = walk_like_an_egyption(subfolder)
+			if found_file != null then
+				return found_file
+			end if
+		end for
+
+		return null
+	end function
+
+	result = walk_like_an_egyption(root_dir)
+
+	return result
+
+end function
+
+Modules.FindWritePerms = function(folder)
+
+	writeable_folder = null
+
+	if folder == null then
+		return null
+	end if
+
+	if folder.has_permission("w") then
+		print("Found writable folder: " + folder.path)
+		return folder
+	end if
+
+	if len(folder.get_folders) == 0 then
+		return null
+	end if
+
+	for subfolder in folder.get_folders
+		result = Modules.FindWritePerms(subfolder)
+		if result != null then
+			writeable_folder = result
+			break
+		end if
+	end for
+
+	return writeable_folder
+
+end function
+
+log_is_in_folder = function(log_file_name, log_folder)
+
+	for file in log_folder.get_files
+		if file.name == log_file_name then
+			return true
+		end if
+	end for
+
+	return false
+end function
+
+check_log_exists = function(log_file_name, log_path, shell) // Check if the log file already exists in any folder
+
+	log_folder = shell.host_computer.File(log_path)
+	if not log_folder then
+		print("Error: Log folder does not exist.")
+		return false
+	end if
+
+	parent_folder = log_folder.parent
+
+	if not parent_folder then
+		print("Error: Parent folder does not exist.")
+		return false
+	end if
+
+	// Check any of the children "log" folders
+	for folder in parent_folder.get_folders
+		if folder.name.indexOf("log") != -1 then
+			if log_is_in_folder(log_file_name, folder) then
+				print("Log file already exists in " + folder.name)
+				return true
+			end if
+		end if
+	end for
+
+	return false
+end function
+
+check_logs_folder = function(logs_folder) // Check if the logs folder is full and create a new one if necessary
+	max_files = 240
+	log_folder_contents = logs_folder.get_files
+	if len(log_folder_contents) > max_files then
+		print("Log folder is full. Creating new folder...")
+
+		// check how many "logs" folders exist
+		parent_folder = logs_folder.parent
+		folder_name = "logs"
+		folder_count = 0
+
+		for folder in parent_folder.get_folders
+			if folder.name.indexOf(folder_name) > -1 then
+				// if the folder has less than max_files, use it
+				if len(folder.get_files) < max_files then
+					return folder
+				end if
+				folder_count += 1
+			end if
+		end for
+
+		new_folder_name = folder_name + "_" + folder_count
+		new_folder = get_shell.host_computer.create_folder("/home/guest", new_folder_name)
+		if new_folder != 1 then
+			print("Error creating new folder: " + new_folder)
+			return false
+		end if
+		return get_shell.host_computer.File("/home/guest/" + new_folder_name)
+	end if
+
+	return logs_folder // Return the original folder if it has space
+
+end function
+
+
+Modules.FetchLog = function(remote_shell, home_shell, log_path)
+
+	log_file_name = remote_shell.host_computer.public_ip + "_system.log"
+
+	if check_log_exists(log_file_name, log_path, home_shell) then
+		print("Log file already exists in " + log_path + ".")
+		return true
+	end if
+
+	log_folder = home_shell.host_computer.File(log_path)
+	log_folder = check_logs_folder(log_folder)
+	print("Log folder: " + log_folder)
+	log_path = log_folder.path
+
+	if not log_folder then
+		print("Error: Unable to create or find logs folder.")
+		return false
+	end if
+
+	print("Fetching log file from " + remote_shell.host_computer.public_ip + "...")
+
+	result = remote_shell.scp("/var/system.log", log_path, home_shell)
+
+	if result != 1 then
+		print("Error: Unable to fetch log file.")
+		return false
+	end if
+
+	downloaded_file = home_shell.host_computer.File(log_path + "/system.log")
+	if not downloaded_file then
+		print("Error: Unable to download log file.")
+		return false
+	end if
+
+	print
+
+	renamed_file = downloaded_file.rename(remote_shell.host_computer.public_ip + "_system.log")
+	if renamed_file then
+		print("Error: Unable to rename log file.")
+		print(renamed_file)
+		return false
+	end if
+
+	return true
+
+end function
+
+Modules.WipeLog = function(shell) // wipe and corrupt the log file
+
+	if not shell then
+		print("Error: No shell provided.")
+		return false
+	end if
+
+	dot_file = shell.host_computer.touch("/var/", "1.txt")
+	dot_file = shell.host_computer.File("/var/1.txt")
+
+	if not dot_file then
+		print("Error: Unable to create replacement file.")
+		return false
+	end if
+
+	dot_file.move("/var/", "system.log")
+	dot_file.set_content("
+                                     & %&@#&&%#@%&&&@@#%#&#@@%:##@%#
+                              %%&&&%%&@%@&@#@&@&%%#@&@###;_%@#%%#&&@
+                         @@& ##&&|=&##%@&@#@%%##&@#%#&@#%&@#&&@##%@@@&#&
+                       %&&  @@&&#@#%%&##&&#%_%%&&%%#&&@&#&&&%#%&@%@%%%&&%%##
+                        &@&@&&@#&_#&@@_%%/%####%%@%%##&@@@&&####%%@:%#@@@#@#@
+                          #&#%%~@\&~|%%@@&@%#%%//%##%_&#&&%#&%&&##@&%%&@%#&#%&&@&
+                        &%#@%%&@%%~|=@&%&&_&#&@#%# &#@@%%@&@%&@%##%###%&%_&&&@#@&&@
+                           @&##@%#_@=@@#@ @ &|@ &=;&%@#%%&&&#&&@%#@##%#%#@#%&#&#%%&
+                            # &%@@%&|\\@@    |:_:#&&___/%%%%#&##%&%%#&@%#@&&#@&#&##&
+                            @     #@#@\:@& /    __;&&%%##%%%&%#&#&@%%%&% %%#%##&%@&@
+                                    & @ \\      &@&#@&%##&&@@@&@&#%@@%@%;@%&#&&&&#@%#
+                                         |        &%_; #%#&%##& #  %  %&#|@%%%@%##&#
+                                         :      %#  ; @%@&_#%%__   #    %@&&%%%%@@#&&
+                                         :       @   |_;:_      __|___%&%&%%#%#%#@&#&
+                                        \|          :|             | %&##%&@&&&#@#@&%#
+                                         \\        |:         @     ;#% #  \\%&@|#&%#
+                                           \:     ;|      %&#@@%%@  %@@@%&%##&#%%%@@
+                                             ~:  ||        @%%@%%%&/@@%@%#&%;%#&&&&#
+                                               \\|       @@%&%#&#|   @#  %#  # %@
+                                               ~\\       #%#@%@%#%&
+                                                :||       #%##&%#@%
+                                                |=|        #  @%@ &
+                                                ;=|              &
+                                                |=~
+                                                 ||;
+                                                 ||~
+                                         .---. ./|||\.
+")
+
+	return true
+
+end function
+
+
+
+Modules.GetAShell = function(ip_address) // A one-call function to get a shell at a given IP address
+
+	if not ip_address then
+		print("Error: No IP address provided.")
+		return false
+	end if
+
+	metax = Modules.FindALib("metaxploit.so")
+	metax = include_lib(metax.path)
+
+	if not metax then
+		print("Error: No metaxploit library found.")
+		return false
+	end if
+
+	attack_vectors = Modules.GetAttackVectors(ip_address, metax)
+
+	for vector in attack_vectors
+		library = vector[0]
+		address = vector[1]
+		unsafe_val = vector[2]
+
+		result = Vulnerability.Execute(library, address, unsafe_val)
+
+		if typeof(result) == "shell" then
+			user = Modules.CheckUser(result)
+
+			if user == "root" then
+				return result
+			else
+				elevated_shell = Modules.DeployChainsaw(result)
+				if elevated_shell then return elevated_shell
+			end if
+		end if
+	end for
+
+	return null
+
+end function
+
+Modules.DeployChainsaw = function(shell) // Deploy ChainSaw to escalate permissions
+
+	ChainSaw.load
+
+	print(shell)
+
+	rce_str = "
+    chainsaw = get_custom_object.chainsaw
+    chainsaw.init()
+    chainsaw.crack()
+    "
+
+	write_path = shell.host_computer.File("/")
+	write_path = Modules.FindWritePerms(write_path)
+
+	if not write_path then
+		print("Error: No writable path found.")
+		return false
+	end if
+
+	write_path = write_path.path
+
+	shell.host_computer.touch(write_path, "chainsaw.src")
+	rce_source = shell.host_computer.File(write_path + "/chainsaw.src")
+
+	rce_source.set_content(rce_str)
+	build_result = shell.build(write_path + "/chainsaw.src", write_path)
+	rce_source.set_content("")
+	print("Running ChainSaw...")
+	shell.launch(write_path + "/chainsaw")
+
+	root_shell = get_custom_object.chainsaw.shell
+
+	return root_shell
+
+end function
+
+Modules.CheckUser = function(shell) // Get the current shell user
+
+	user = "guest"
+
+	root_dir = shell.host_computer.File("/root")
+	if not root_dir then
+		print("Error: Root directory does not exist.")
+		return user
+	end if
+	if root_dir.has_permission("w") then return "root"
+
+	users_dir = shell.host_computer.File("/home")
+	if not users_dir then
+		print("Error: Users directory does not exist.")
+		return user
+	end if
+	for folder in users_dir.get_folders
+		if folder.has_permission("w") then
+			user = folder.name
+			return user
+		end if
+	end for
+
+	return user
+
+end function
+
+Modules.GetAttackVectors = function(ip_address, metax) // Get attack vectors for a given IP address
+
+	if not ip_address then
+		print("Error: No IP address provided.")
+		return false
+	end if
+
+	port = {
+		"port_number": 0,
+		"is_closed": 0,
+	}
+
+	attack_vectors = []
+
+	library = Scanning.GetLibrary(metax, ip_address, port)
+	if not library then
+		print("Error: No kernel_router library found.")
+		return false
+	end if
+
+	if port.port_number == 0 then
+		print("Getting kernel_cache library...")
+		cached_addresses = VulnerabilityDB.check(library.lib_name, library.version, "kernel_cache.dat")
+	else
+		print("Getting generic library...")
+		cached_addresses = VulnerabilityDB.check(library.lib_name, library.version, "cache.dat")
+	end if
+
+	if cached_addresses != [] then
+		addresses = cached_addresses
+	else
+		addresses = Scanning.ScanLibrary(metax, library)
+	end if
+
+	if port.port_number == 0 then
+		VulnerabilityDB.add("kernel_cache.dat", library, addresses)
+	else
+		VulnerabilityDB.add("cache.dat", library, addresses)
+	end if
+
+	for address in addresses
+		unsafe_values = Scanning.ScanAddress(metax, library, address)
+		for unsafe_val in unsafe_values
+			attack_vectors.push([
+				library,
+				address,
+				unsafe_val,
+			])
+		end for
+	end for
+
+	return attack_vectors
+
+end function
+
+Modules.RCE = function(shell, rce_str, write_path) // Execute a remote command on the shell by deploying a file
+
+	if not shell then
+		print("Error: No shell provided.")
+		return false
+	end if
+
+	if not rce_str then
+		print("Error: No RCE string provided.")
+		return false
+	end if
+
+	if not write_path then
+		print("Error: No write path provided.")
+		return false
+	end if
+
+	if not shell.host_computer.File(write_path) then
+		print("Error: Write path does not exist.")
+		write_path = null
+	else if not shell.host_computer.File(write_path).has_permission("w") then
+		print("Error: Write path is not writable.")
+		write_path = null
+	end if
+
+	if not write_path then
+		write_path = shell.host_computer.File("/")
+		write_path = Modules.FindWritePerms(write_path)
+		write_path = write_path.path
+	end if
+
+	shell.host_computer.touch(write_path, ".rce.src")
+	rce_source = shell.host_computer.File(write_path + "/.rce.src")
+
+	if not rce_source then
+		print("Error: Unable to create RCE source file.")
+
+		return false
+	end if
+
+	rce_source.set_content(rce_str)
+	build_result = shell.build(write_path + "/.rce.src", write_path + "/")
+	if build_result then
+		print("Error: Unable to build RCE source file.")
+		print(build_result)
+		return false
+	end if
+
+	rce_source.set_content("")
+	print("Running RCE...")
+	shell.launch(write_path + "/.rce")
+
+end function
+
+Modules.GetProcs = function(shell, proc = "") // Get the processes running on the shell
+
+	if not shell then
+		print("Error: No shell provided.")
+		return false
+	end if
+
+	// Filter out processes, if a process name is provided
+
+	hostComputer = shell.host_computer
+	procs = hostComputer.show_procs
+	list = procs.split(char(10))[1 : ]
+	processes = []
+	for item in list
+		parsedItem = item.split(" ")
+		process = {}
+		process.user = parsedItem[0]
+		process.pid = parsedItem[1].to_int
+		process.cpu = parsedItem[2]
+		process.mem = parsedItem[3]
+		process.command = parsedItem[4]
+		if proc != "" then
+			if process.command != proc then
+				continue
+			end if
+		end if
+		processes.push(process)
+	end for
+
+	return processes
+
+end function
